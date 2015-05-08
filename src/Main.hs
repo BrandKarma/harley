@@ -14,16 +14,60 @@ import qualified Foreign.Storable as FFI
 import qualified Pipes as PI
 import qualified Pipes.ByteString as PI
 import Pipes ((>->))
+import qualified Pipes.Network.TCP as PI
+import qualified Network.Simple.TCP as N
+import Options.Applicative
+import qualified  Network.URI as URI
+import Data.Maybe (fromJust)
+
+
+data Config = Config
+  {
+    output :: Maybe String
+  }
+
+
+config :: Parser Config
+config = Config
+    <$> optional (strOption
+        (  long "output"
+        <> metavar "DEST"
+        <> help "Destination server"
+        ))
 
 
 main :: IO ()
 main = do
+    config <- execParser options
+    run config
+    where
+        options = info (helper <*> config) 
+            (  fullDesc 
+            <> progDesc "Replay HTTP traffic"
+            <> header "harley - swiss army knife to replay http traffic"
+            )
+
+
+run :: Config -> IO ()
+run config = do
     let device_name = "en0"
     network <- P.lookupNet device_name
     handle <- P.openLive device_name 65535 True 0
-    P.setFilter handle "tcp port 8000" False (PB.netMask network)
-    let producer = fromPcapHandle handle
-    PI.runEffect $ producer >-> PI.stdout
+    P.setFilter handle "tcp dst port 8000" False (PB.netMask network)
+
+    case (output config) of
+                      Just maybeUri -> do
+                                          case URI.parseURI maybeUri of
+                                            Just uri -> do
+                                                          let port = drop 1 $ URI.uriPort $ fromJust (URI.uriAuthority uri)
+                                                          let regName = URI.uriRegName $ fromJust (URI.uriAuthority uri)
+                                                          (sock, sockAddr) <- N.connectSock regName port
+                                                          let producer = fromPcapHandle handle
+                                                          PI.runEffect $ producer >-> (PI.toSocket sock)
+                                                          N.closeSock sock;
+                                            Nothing -> putStrLn "Invalid URI"
+                      Nothing -> putStrLn "No output specified"
+
 
 
 toBS :: (Int, FFI.Ptr Word8) -> IO C8.ByteString
