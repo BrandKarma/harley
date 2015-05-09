@@ -3,17 +3,27 @@
 
 name:                harley
 version:             0.1.0.0
--- synopsis:            
--- description:         
+synopsis:            HTTP replayer
+description:         harley is a HTTP replayer
 license:             BSD3
 license-file:        LICENSE
-author:              Paul Meng
-maintainer:          mno2@mno2.org
--- copyright:           
+author:              Paul Meng <mno2@mno2.org>
+maintainer:          Paul Meng <mno2@mno2.org>
+copyright:           Paul Meng 2015-2016
 category:            Web
 build-type:          Simple
--- extra-source-files:  
 cabal-version:       >=1.10
+homepage:            https://github.com/BrandKarma/harley
+bug-reports:         https://github.com/BrandKarma/harley/issues
+tested-with:         GHC==7.10.1
+
+extra-source-files:
+    README.md
+
+
+source-repository head
+    type: git
+    location: https://github.com/BrandKarma/harley.git
 
 library
   -- exposed-modules:     
