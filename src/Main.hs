@@ -1,7 +1,7 @@
 {-# LANGUAGE RankNTypes #-}
 module Main where
 
-import Control.Monad (when, join)
+import Control.Monad (when, join, forever)
 import Control.Monad.IO.Class
 import qualified Data.ByteString.Char8 as C8
 import qualified Data.ByteString.Internal as BI
@@ -80,8 +80,8 @@ main = do
             ) 
 
 
-dispatch :: URI.URI -> P.PcapHandle -> IO ()
-dispatch uri handle = do
+dispatchClient :: URI.URI -> P.PcapHandle -> IO ()
+dispatchClient uri handle = do
     let scheme = URI.uriScheme uri
     case scheme of
         "tcp:" -> forwardTcp uri handle
@@ -145,13 +145,29 @@ reverseProxy backend_hosts wai_req respond = do
   respond $ Wai.responseLBS HTTP.status200 [] lbs_resp
 
 
-runServer :: ServerOptions -> IO ()
-runServer config = do
-  case URI.parseURI (serverInput config) of
-      Just uri -> do 
+relayProxy :: ServerOptions -> IO ()
+relayProxy config = do
+   N.listen (N.Host "127.0.0.1") "8000" $ \(listeningSocket, listeningAddr) -> do
+     putStrLn $ "Listening for incoming connections at " ++ show listeningAddr
+     forever . N.acceptFork listeningSocket $ \(connectionSocket, remoteAddr) -> do
+       putStrLn $ "Connection established from " ++ show remoteAddr
+
+
+dispatchServer :: ServerOptions -> URI.URI -> IO ()
+dispatchServer config uri = do
+    let scheme = URI.uriScheme uri
+    case scheme of
+        "http:" -> do
             let listenPort = read $ drop 1 $ URI.uriPort $ fromJust (URI.uriAuthority uri)
             let backends = [(serverOutput config)]
             Warp.run listenPort (reverseProxy backends)
+        _ -> error $ "protocol " ++ scheme ++ " not supported."
+
+
+runServer :: ServerOptions -> IO ()
+runServer config = do
+  case URI.parseURI (serverInput config) of
+      Just uri -> dispatchServer config uri
       Nothing -> putStrLn "Invalid URI"
 
 
@@ -165,7 +181,7 @@ runClient config = do
     case (clientOutput config) of
                       Just maybeUri -> do
                                           case URI.parseURI maybeUri of
-                                            Just uri -> dispatch uri handle
+                                            Just uri -> dispatchClient uri handle
                                             Nothing -> putStrLn "Invalid URI"
                       Nothing -> putStrLn "No output specified"
 
