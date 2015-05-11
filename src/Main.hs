@@ -27,6 +27,7 @@ import qualified Network.HTTP.Types.Status as HTTP
 import qualified Network.HTTP.Client.TLS as HTTP
 import qualified Control.Concurrent.Async as Async
 import qualified Network.Wai as Wai
+import qualified Network.Wai.Handler.Warp as Warp
 
 data ClientOptions = ClientOptions
   {
@@ -36,7 +37,8 @@ data ClientOptions = ClientOptions
 
 data ServerOptions = ServerOptions
   {
-    serverOutput :: Maybe String
+    serverOutput :: String
+  , serverInput :: String
   }
 
 
@@ -55,10 +57,15 @@ clientOptions = ClientOptions
 
 serverOptions :: Parser ServerOptions
 serverOptions = ServerOptions
-    <$> optional (strOption
+    <$> (strOption
         (  long "output"
         <> metavar "DEST"
-        <> help "Destination server"
+        <> help "destination server"
+        ))
+    <*> (strOption
+        (  long "input"
+        <> metavar "ORG"
+        <> help "listener"
         ))
 
 
@@ -129,8 +136,23 @@ forwardTcp uri handle = do
     N.closeSock sock
 
 
+
+reverseProxy :: [String] -> Wai.Application
+reverseProxy backend_hosts wai_req respond = do 
+  http_reqs <- mapM (mkBackendRequest wai_req) backend_hosts
+  responses <- Async.mapConcurrently replayHttp http_reqs
+  let lbs_resp = head responses
+  respond $ Wai.responseLBS HTTP.status200 [] lbs_resp
+
+
 runServer :: ServerOptions -> IO ()
-runServer config = undefined
+runServer config = do
+  case URI.parseURI (serverInput config) of
+      Just uri -> do 
+            let listenPort = read $ drop 1 $ URI.uriPort $ fromJust (URI.uriAuthority uri)
+            let backends = [(serverOutput config)]
+            Warp.run listenPort (reverseProxy backends)
+      Nothing -> putStrLn "Invalid URI"
 
 
 runClient :: ClientOptions-> IO ()

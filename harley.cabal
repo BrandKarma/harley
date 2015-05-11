@@ -45,7 +45,8 @@ library
                        pipes-network >= 0.6,
                        pcap >= 0.4.5,
                        transformers >= 0.4,
-                       wai >= 3.0
+                       wai >= 3.0,
+                       warp >= 3.0
   hs-source-dirs:      src
   default-language:    Haskell2010
 
@@ -68,6 +69,7 @@ executable harley
                        pipes-network >= 0.6,
                        pcap >= 0.4.5,
                        transformers >= 0.4,
-                       wai >= 3.0
+                       wai >= 3.0,
+                       warp >= 3.0
   hs-source-dirs:      src
   default-language:    Haskell2010
