@@ -48,6 +48,36 @@ main = do
             )
 
 
+dispatch :: URI.URI -> P.PcapHandle -> IO ()
+dispatch uri handle = do
+    let scheme = URI.uriScheme uri
+    case scheme of
+        "tcp:" -> forwardTcp uri handle
+        "file:" -> forwardFile uri handle
+        "http:" -> forwardHttp uri handle
+        _ -> error $ "protocol " ++ scheme ++ " not supported."
+        
+
+forwardFile :: URI.URI -> P.PcapHandle -> IO ()
+forwardFile uri handle = undefined
+
+
+forwardHttp :: URI.URI -> P.PcapHandle -> IO ()
+forwardHttp uri handle = undefined
+
+
+forwardTcp :: URI.URI -> P.PcapHandle -> IO ()
+forwardTcp uri handle = do
+    let scheme = init $ URI.uriScheme $ uri
+    let port = drop 1 $ URI.uriPort $ fromJust (URI.uriAuthority uri)
+    let regName = URI.uriRegName $ fromJust (URI.uriAuthority uri)
+    (sock, sockAddr) <- N.connectSock regName port
+    let producer = fromPcapHandle handle
+    PI.runEffect $ producer >-> (PI.toSocket sock)
+    N.closeSock sock;
+    
+
+
 run :: Config -> IO ()
 run config = do
     let device_name = "en0"
@@ -58,16 +88,9 @@ run config = do
     case (output config) of
                       Just maybeUri -> do
                                           case URI.parseURI maybeUri of
-                                            Just uri -> do
-                                                          let port = drop 1 $ URI.uriPort $ fromJust (URI.uriAuthority uri)
-                                                          let regName = URI.uriRegName $ fromJust (URI.uriAuthority uri)
-                                                          (sock, sockAddr) <- N.connectSock regName port
-                                                          let producer = fromPcapHandle handle
-                                                          PI.runEffect $ producer >-> (PI.toSocket sock)
-                                                          N.closeSock sock;
+                                            Just uri -> dispatch uri handle
                                             Nothing -> putStrLn "Invalid URI"
                       Nothing -> putStrLn "No output specified"
-
 
 
 toBS :: (Int, FFI.Ptr Word8) -> IO C8.ByteString
