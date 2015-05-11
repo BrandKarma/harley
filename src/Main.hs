@@ -1,10 +1,11 @@
 {-# LANGUAGE RankNTypes #-}
 module Main where
 
-import Control.Monad (when)
+import Control.Monad (when, join)
 import Control.Monad.IO.Class
 import qualified Data.ByteString.Char8 as C8
 import qualified Data.ByteString.Internal as BI
+import qualified Data.ByteString.Lazy as LB
 import qualified Network.Pcap as P
 import qualified Network.Pcap.Base as PB
 import Data.Word (Word8, Word16)
@@ -15,20 +16,45 @@ import qualified Pipes as PI
 import qualified Pipes.ByteString as PI
 import Pipes ((>->))
 import qualified Pipes.Network.TCP as PI
+import qualified Pipes.HTTP as PI
 import qualified Network.Simple.TCP as N
 import Options.Applicative
 import qualified  Network.URI as URI
 import Data.Maybe (fromJust)
+import qualified System.IO as SIO
+import qualified Network.HTTP.Client as HTTP
+import qualified Network.HTTP.Types.Status as HTTP
+import qualified Network.HTTP.Client.TLS as HTTP
+import qualified Control.Concurrent.Async as Async
+import qualified Network.Wai as Wai
 
-
-data Config = Config
+data ClientOptions = ClientOptions
   {
-    output :: Maybe String
+    clientOutput :: Maybe String
   }
 
 
-config :: Parser Config
-config = Config
+data ServerOptions = ServerOptions
+  {
+    serverOutput :: Maybe String
+  }
+
+
+data Command = Server ServerOptions
+             | Client ClientOptions
+
+
+clientOptions :: Parser ClientOptions
+clientOptions = ClientOptions
+    <$> optional (strOption
+        (  long "output"
+        <> metavar "DEST"
+        <> help "Destination server"
+        ))
+
+
+serverOptions :: Parser ServerOptions
+serverOptions = ServerOptions
     <$> optional (strOption
         (  long "output"
         <> metavar "DEST"
@@ -38,14 +64,13 @@ config = Config
 
 main :: IO ()
 main = do
-    config <- execParser options
-    run config
+    join $ execParser (info options (fullDesc <> progDesc "Relay HTTP traffic" <> header "harley - swiss army knife to replya http traffic"))
     where
-        options = info (helper <*> config) 
-            (  fullDesc 
-            <> progDesc "Replay HTTP traffic"
-            <> header "harley - swiss army knife to replay http traffic"
-            )
+        options :: Parser (IO ())
+        options = subparser
+            (  command "client" (info (runClient <$> clientOptions) (fullDesc <> progDesc "Relay HTTP traffic" <> header "harley - swiss army knife to replay http traffic")) 
+            <> command "server" (info (runServer <$> serverOptions) (fullDesc <> progDesc "Relay HTTP traffic" <> header "harley - swiss army knife to replay http traffic")) 
+            ) 
 
 
 dispatch :: URI.URI -> P.PcapHandle -> IO ()
@@ -59,7 +84,34 @@ dispatch uri handle = do
         
 
 forwardFile :: URI.URI -> P.PcapHandle -> IO ()
-forwardFile uri handle = undefined
+forwardFile uri handle = do
+    let filename = URI.uriPath uri
+    let producer = fromPcapHandle handle
+    SIO.withFile filename SIO.WriteMode $ \h -> do
+        SIO.hSetBuffering h (SIO.BlockBuffering (Just 1024))
+        PI.runEffect $ producer >-> (PI.toHandle h)
+
+
+replayHttp :: HTTP.Request -> IO LB.ByteString
+replayHttp http_req =
+  if HTTP.secure http_req
+    then
+      HTTP.withManager HTTP.tlsManagerSettings $ \m ->
+        PI.withHTTP http_req m $ \resp -> PI.toLazyM $ HTTP.responseBody resp
+    else
+      HTTP.withManager HTTP.defaultManagerSettings $ \m ->
+        PI.withHTTP http_req m $ \resp -> PI.toLazyM $ HTTP.responseBody resp
+
+
+mkBackendRequest :: Wai.Request -> String -> IO HTTP.Request
+mkBackendRequest wai_req backend_host = do
+  lbs_req_body <- Wai.lazyRequestBody wai_req 
+  init_req <- HTTP.parseUrl backend_host
+  let http_req = init_req { HTTP.path = (Wai.rawPathInfo wai_req)
+                          , HTTP.queryString = (Wai.rawQueryString wai_req)
+                          , HTTP.requestBody = HTTP.RequestBodyLBS (lbs_req_body)
+                          } :: HTTP.Request
+  return http_req
 
 
 forwardHttp :: URI.URI -> P.PcapHandle -> IO ()
@@ -74,18 +126,21 @@ forwardTcp uri handle = do
     (sock, sockAddr) <- N.connectSock regName port
     let producer = fromPcapHandle handle
     PI.runEffect $ producer >-> (PI.toSocket sock)
-    N.closeSock sock;
-    
+    N.closeSock sock
 
 
-run :: Config -> IO ()
-run config = do
+runServer :: ServerOptions -> IO ()
+runServer config = undefined
+
+
+runClient :: ClientOptions-> IO ()
+runClient config = do
     let device_name = "en0"
     network <- P.lookupNet device_name
     handle <- P.openLive device_name 65535 True 0
     P.setFilter handle "tcp dst port 8000" False (PB.netMask network)
 
-    case (output config) of
+    case (clientOutput config) of
                       Just maybeUri -> do
                                           case URI.parseURI maybeUri of
                                             Just uri -> dispatch uri handle
