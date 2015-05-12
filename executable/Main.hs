@@ -136,7 +136,6 @@ forwardTcp uri handle = do
     N.closeSock sock
 
 
-
 reverseProxy :: [String] -> Wai.Application
 reverseProxy backend_hosts wai_req respond = do 
   http_reqs <- mapM (mkBackendRequest wai_req) backend_hosts
@@ -145,9 +144,9 @@ reverseProxy backend_hosts wai_req respond = do
   respond $ Wai.responseLBS HTTP.status200 [] lbs_resp
 
 
-relayProxy :: ServerOptions -> IO ()
-relayProxy config = do
-   N.listen (N.Host "127.0.0.1") "8000" $ \(listeningSocket, listeningAddr) -> do
+relayProxy :: String -> Int -> IO ()
+relayProxy hostname port = do
+   N.listen (N.Host hostname) (show port) $ \(listeningSocket, listeningAddr) -> do
      putStrLn $ "Listening for incoming connections at " ++ show listeningAddr
      forever . N.acceptFork listeningSocket $ \(connectionSocket, remoteAddr) -> do
        putStrLn $ "Connection established from " ++ show remoteAddr
@@ -156,11 +155,15 @@ relayProxy config = do
 dispatchServer :: ServerOptions -> URI.URI -> IO ()
 dispatchServer config uri = do
     let scheme = URI.uriScheme uri
+    let listenRegName = URI.uriRegName $ fromJust (URI.uriAuthority uri)
+    let listenPort = read $ drop 1 $ URI.uriPort $ fromJust (URI.uriAuthority uri)
+
     case scheme of
         "http:" -> do
-            let listenPort = read $ drop 1 $ URI.uriPort $ fromJust (URI.uriAuthority uri)
             let backends = [(serverOutput config)]
             Warp.run listenPort (reverseProxy backends)
+        "tcp:" -> do
+            relayProxy listenRegName listenPort
         _ -> error $ "protocol " ++ scheme ++ " not supported."
 
 
