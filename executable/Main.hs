@@ -173,6 +173,9 @@ runServer config = do
       Just uri -> dispatchServer config uri
       Nothing -> putStrLn "Invalid URI"
 
+{- |
+   Run client subcommand.
+ -}
 
 runClient :: ClientOptions-> IO ()
 runClient config = do
